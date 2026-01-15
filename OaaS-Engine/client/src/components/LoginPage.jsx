@@ -6,6 +6,8 @@ const LoginPage = () => {
     const navigate = useNavigate();
     const [loading, setLoading] = useState(false);
     const [role, setRole] = useState('candidate'); // 'candidate' or 'recruiter'
+    const [email, setEmail] = useState('');
+    const [name, setName] = useState('');
 
     const handleLogin = (e) => {
         e.preventDefault();
@@ -14,6 +16,9 @@ const LoginPage = () => {
         setTimeout(() => {
             // Role-Based Navigation
             if (role === 'candidate') {
+                // Save user details for the session
+                localStorage.setItem('candidateName', name);
+                localStorage.setItem('candidateEmail', email);
                 navigate('/dashboard');
             } else {
                 navigate('/corporate');
@@ -52,6 +57,25 @@ const LoginPage = () => {
                     </div>
 
                     <form onSubmit={handleLogin} className="space-y-6">
+                        {role === 'candidate' && (
+                            <div>
+                                <label className="block text-sm font-medium text-gray-700 mb-1">Full Name</label>
+                                <div className="relative">
+                                    <div className="absolute left-3 top-3 text-gray-400">
+                                        <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"></path><circle cx="12" cy="7" r="4"></circle></svg>
+                                    </div>
+                                    <input
+                                        type="text"
+                                        className="w-full pl-10 pr-4 py-3 rounded-lg border border-gray-200 focus:outline-none focus:ring-2 focus:ring-indigo-500 transition"
+                                        placeholder="John Doe"
+                                        value={name}
+                                        onChange={(e) => setName(e.target.value)}
+                                        required
+                                    />
+                                </div>
+                            </div>
+                        )}
+
                         <div>
                             <label className="block text-sm font-medium text-gray-700 mb-1">Email Address</label>
                             <div className="relative">
@@ -60,7 +84,9 @@ const LoginPage = () => {
                                     type="email"
                                     className="w-full pl-10 pr-4 py-3 rounded-lg border border-gray-200 focus:outline-none focus:ring-2 focus:ring-indigo-500 transition"
                                     placeholder="name@company.com"
-                                    defaultValue="hr@partner.com"
+                                    value={email}
+                                    onChange={(e) => setEmail(e.target.value)}
+                                    required
                                 />
                             </div>
                         </div>

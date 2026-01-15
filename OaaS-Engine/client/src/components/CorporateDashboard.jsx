@@ -1,3 +1,4 @@
+import React from 'react';
 import { Users, TrendingUp, AlertTriangle, CheckCircle, Search, Filter, Download } from 'lucide-react';
 import CandidateReportModal from './CandidateReportModal';
 
@@ -10,7 +11,12 @@ const CorporateDashboard = () => {
         fetch('http://localhost:5001/api/simulation/results')
             .then(res => res.json())
             .then(data => {
-                setCandidates(data);
+                if (Array.isArray(data)) {
+                    setCandidates(data);
+                } else {
+                    console.error("API returned non-array:", data);
+                    setCandidates([]);
+                }
                 setLoading(false);
             })
             .catch(err => {

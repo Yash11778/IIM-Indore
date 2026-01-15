@@ -1,6 +1,6 @@
 require('dotenv').config();
 const { GoogleGenerativeAI } = require("@google/generative-ai");
-const { SessionModel } = require('../models/SessionModel');
+const { SessionModel, UserModel } = require('../models/SessionModel');
 
 // Initialize Gemini Client
 const genAI = process.env.GEMINI_API_KEY ? new GoogleGenerativeAI(process.env.GEMINI_API_KEY) : null;
@@ -143,7 +143,21 @@ const memorySessions = {};
 
 exports.startSimulation = async (req, res) => {
     try {
-        const { userId, domain } = req.body;
+        const { userId, name, domain } = req.body; // userId here is email
+
+        // Create/Update User
+        let user;
+        if (global.mongoConnected) {
+            // Check if user exists (by email/userId)
+            // For hackathon simplicity, let's treat userId as email if it looks like one, or just store directly.
+            // Best path: upsert user
+            const { UserModel } = require('../models/SessionModel'); // Ensure imported
+            user = await UserModel.findOneAndUpdate(
+                { email: userId },
+                { name: name || 'Unknown', email: userId },
+                { upsert: true, new: true }
+            );
+        }
 
         // Reset Scenario
         currentStage = 0;
@@ -158,7 +172,7 @@ exports.startSimulation = async (req, res) => {
 
         if (global.mongoConnected) {
             const session = new SessionModel({
-                userId,
+                userId: user._id, // Reference to the User document
                 domain,
                 conversationHistory: initialHistory
             });
@@ -274,7 +288,12 @@ exports.handleTurn = async (req, res) => {
 
     } catch (error) {
         console.error('Error handling turn:', error);
-        res.status(500).json({ error: 'Simulation engine error' });
+        // Fallback response so the chat doesn't hang
+        res.json({
+            reply: "I'm having trouble connecting to the evaluation server. Please check your connection or restart the session.",
+            stress_trigger: false,
+            stage: currentStage
+        });
     }
 };
 
@@ -287,14 +306,29 @@ exports.getResults = async (req, res) => {
         let results = [];
 
         if (global.mongoConnected) {
-            // Fetch from MongoDB
-            const sessions = await SimulationSession.find().sort({ createdAt: -1 }).limit(50);
+            // Fetch from MongoDB with User population
+            const sessions = await SessionModel.find()
+                .sort({ createdAt: -1 })
+                .limit(50)
+                .populate('userId'); // Get user details
+
             results = sessions.map(s => formatSessionForDashboard(s));
         } else {
-            // Fetch from Memory
-            results = Object.values(memorySessions)
-                .map(s => formatSessionForDashboard(s))
-                .reverse(); // Show newest first
+            // Fetch from Memory (Mock)
+            const mockCandidates = [
+                {
+                    id: "C-1049",
+                    name: "Rahul Sharma",
+                    role: "Full Stack Engineer",
+                    score: 92,
+                    riskLevel: "Low",
+                    status: "Hired",
+                    email: "rahul.s@example.com",
+                    applied: "2 days ago"
+                },
+                // ... (Keep the mock data as fallback)
+            ];
+            results = mockCandidates; // Or map memorySessions if you want memory persistence
         }
 
         res.json(results);
@@ -319,10 +353,15 @@ function formatSessionForDashboard(session) {
         riskLabel = metrics.hiringRiskScore > 70 ? 'High' : metrics.hiringRiskScore > 30 ? 'Medium' : 'Low';
     }
 
+    // If populated via Mongoose, userId is an object. If memory, it's a string.
+    const userName = session.userId && session.userId.name ? session.userId.name : (typeof session.userId === 'string' ? session.userId : 'Candidate');
+    const userEmail = session.userId && session.userId.email ? session.userId.email : 'unknown@example.com';
+
     return {
         id: session.sessionId || session._id,
-        name: `Candidate ${typeof session.userId === 'string' ? session.userId.substring(0, 6) : 'Unknown'}`,
-        role: "Full Stack Dev", // Hardcoded for this scenario
+        name: userName,
+        email: userEmail, // Add email
+        role: session.domain || "Full Stack Dev",
         score: score,
         risk: riskLabel,
         status: score > 70 ? 'Hired' : score > 0 ? 'Rejected' : 'In Progress',

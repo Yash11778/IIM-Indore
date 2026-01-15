@@ -56,10 +56,18 @@ const Dashboard = () => {
     useEffect(() => {
         const startSession = async () => {
             try {
+                // Get user details from login
+                const userName = localStorage.getItem('candidateName') || 'Guest Candidate';
+                const userEmail = localStorage.getItem('candidateEmail') || 'guest@example.com';
+
                 const res = await fetch('http://localhost:5001/api/simulation/start', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ userId: 'guest-user', domain: 'Full Stack Dev' })
+                    body: JSON.stringify({
+                        userId: userEmail, // treating email as unique ID for now
+                        name: userName,
+                        domain: 'Full Stack Dev'
+                    })
                 });
                 const data = await res.json();
                 setSessionId(data.sessionId);
