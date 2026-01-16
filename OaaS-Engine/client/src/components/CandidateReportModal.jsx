@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { X, CheckCircle, TrendingUp, DollarSign, Clock, Brain, Activity } from 'lucide-react';
+import StressGraph from './StressGraph';
 
 const CandidateReportModal = ({ candidate, onClose }) => {
     const [animate, setAnimate] = useState(false);
@@ -94,44 +95,11 @@ const CandidateReportModal = ({ candidate, onClose }) => {
                             <h3 className="text-lg font-bold text-gray-900">Cognitive "Flashback" Replay</h3>
                         </div>
 
-                        <div className="relative h-48 w-full bg-gray-50 rounded-lg border border-gray-100 p-4 flex items-end gap-1">
-                            {/* Mock Graph Bars */}
-                            {[...Array(40)].map((_, i) => {
-                                // Generate a fake "Stress Curve" that goes up then down
-                                let height = 30;
-                                if (i > 10 && i < 25) height = 80; // Peak stress
-                                if (i >= 25) height = 40; // Recovery
-
-                                // Add some randomness
-                                height += Math.random() * 20;
-
-                                return (
-                                    <div key={i} className="flex-1 bg-indigo-100 rounded-t-sm relative group">
-                                        <div
-                                            className={`absolute bottom-0 w-full rounded-t-sm transition-all duration-1000 ${i > 10 && i < 25 ? 'bg-red-400' : 'bg-indigo-500'}`}
-                                            style={{ height: `${animate ? height : 0}%` }}
-                                        ></div>
-                                        {/* Tooltip */}
-                                        <div className="opacity-0 group-hover:opacity-100 absolute bottom-full left-1/2 -translate-x-1/2 mb-2 px-2 py-1 bg-gray-900 text-white text-[10px] rounded pointer-events-none whitespace-nowrap z-10">
-                                            Stress Load: {Math.round(height)}%
-                                        </div>
-                                    </div>
-                                )
-                            })}
-
-                            {/* Event Markers */}
-                            <div className="absolute top-4 left-[25%] flex flex-col items-center">
-                                <div className="h-3 w-3 rounded-full bg-red-500 animate-ping"></div>
-                                <div className="w-[1px] h-32 bg-red-500/30 border-l border-dashed border-red-500"></div>
-                                <span className="text-[10px] font-bold text-red-600 mt-1 bg-red-50 px-1 rounded">Crisis Trigger</span>
-                            </div>
-
-                            <div className="absolute top-12 left-[65%] flex flex-col items-center">
-                                <div className="h-3 w-3 rounded-full bg-green-500 shadow-lg shadow-green-200"></div>
-                                <div className="w-[1px] h-24 bg-green-500/30 border-l border-dashed border-green-500"></div>
-                                <span className="text-[10px] font-bold text-green-600 mt-1 bg-green-50 px-1 rounded">Solution Deployed</span>
-                            </div>
+                        {/* Chart Component */}
+                        <div className="h-64">
+                            <StressGraph />
                         </div>
+
                         <p className="text-center text-xs text-gray-400 mt-4">
                             T0: Session Start &nbsp; • &nbsp; Real-time biometric latency tracking (ms)
                         </p>

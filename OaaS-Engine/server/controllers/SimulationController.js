@@ -182,9 +182,15 @@ exports.startSimulation = async (req, res) => {
             // In-Memory Fallback
             sessionId = 'session_' + Date.now();
             memorySessions[sessionId] = {
-                userId,
+                userId, // This is the email
+                name: name || 'Guest Candidate', // Store the real name!
                 domain,
-                conversationHistory: initialHistory
+                conversationHistory: initialHistory,
+                createdAt: new Date(),
+                auditMetrics: {
+                    hiringRiskScore: 50, // Default start
+                    focusIntegrity: 100
+                }
             };
         }
 
@@ -201,7 +207,7 @@ exports.startSimulation = async (req, res) => {
 
 exports.handleTurn = async (req, res) => {
     try {
-        const { sessionId, userMessage, inactivityFlag } = req.body;
+        const { sessionId, userMessage, inactivityFlag, focusScore } = req.body;
 
         let sessionData;
         let history = [];

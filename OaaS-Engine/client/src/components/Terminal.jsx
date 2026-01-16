@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
+import TypewriterText from './TypewriterText';
 
 const Terminal = ({ onCorrectAction }) => {
     const [history, setHistory] = useState([
@@ -147,7 +148,16 @@ tcp        0      0 10.0.0.15:5432          192.168.1.105:49155     TIME_WAIT` }
                         ${line.type === 'system' ? 'text-indigo-400 italic' : ''}
                         whitespace-pre-wrap leading-relaxed
                     `}>
-                        {line.content}
+                        {/* Only animate new messages, not history (simplification: animate everything or just last one? 
+                            Let's just animate typical system/response messages to keep it simple, 
+                            but for a log, we probably want instant render for old stuff. 
+                            For now, let's just animate the "success" and "system" messages for effect.
+                        */}
+                        {line.type !== 'user' ? (
+                            <TypewriterText text={line.content} speed={10} onComplete={scrollToBottom} />
+                        ) : (
+                            line.content
+                        )}
                     </div>
                 ))}
                 <div ref={endRef} />

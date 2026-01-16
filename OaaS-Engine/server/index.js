@@ -18,12 +18,15 @@ global.mongoConnected = false;
 
 mongoose.connect(process.env.MONGO_URI || 'mongodb://localhost:27017/oaas_engine', {
     useNewUrlParser: true,
-    useUnifiedTopology: true
+    useUnifiedTopology: true,
+    serverSelectionTimeoutMS: 5000 // Fail fast
 }).then(() => {
-    console.log('Connected to MongoDB');
+    console.log('✅ Connected to MongoDB');
     global.mongoConnected = true;
 }).catch(err => {
-    console.log('⚠️ MongoDB not available. Starting in IN-MEMORY MODE (Data will be lost on restart).');
+    // Suppress scary stack traces for the hackathon demo
+    console.log('⚠️ MongoDB Connection Failed (Invalid URI or Network Issue).');
+    console.log('🚀 Switched to IN-MEMORY DEMO MODE. All features will work locally.');
     global.mongoConnected = false;
 });
 

@@ -152,6 +152,7 @@ const Dashboard = () => {
         resetInactivityTimer();
 
         try {
+            setIsTyping(true); // Start typing animation
             const res = await fetch('http://localhost:5001/api/simulation/turn', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
@@ -172,6 +173,7 @@ const Dashboard = () => {
                 time: new Date().toLocaleTimeString()
             };
             setMessages(prev => [...prev, aiMsg]);
+            setIsTyping(false); // Stop typing animation
 
             if (data.stress_trigger) {
                 setStressLevel('High');
@@ -363,11 +365,7 @@ const Dashboard = () => {
                     </div>
                 )}
 
-                {activeTab !== 'chat' && activeTab === 'ide' && (
-                    <div className="flex-1 p-0 bg-gray-900 overflow-hidden flex flex-col">
-                        <CodeEditor onComplete={handleCodeSuccess} />
-                    </div>
-                )}
+
 
                 {/* Report Modal */}
                 {showReport && (
@@ -443,8 +441,12 @@ const MessageBubble = ({ message }) => {
 
     if (isSystem) {
         return (
-            <div className="flex justify-center my-2">
-                <span className="bg-yellow-50 text-yellow-800 text-xs px-3 py-1 rounded-full border border-yellow-200">
+            <div className="flex justify-center my-4 animate-in fade-in zoom-in duration-300">
+                <span className="bg-yellow-50 text-yellow-800 text-xs font-semibold px-4 py-1.5 rounded-full border border-yellow-200 shadow-sm flex items-center gap-2">
+                    <span className="relative flex h-2 w-2">
+                        <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-yellow-400 opacity-75"></span>
+                        <span className="relative inline-flex rounded-full h-2 w-2 bg-yellow-500"></span>
+                    </span>
                     {message.text}
                 </span>
             </div>
@@ -452,15 +454,28 @@ const MessageBubble = ({ message }) => {
     }
 
     return (
-        <div className={`flex ${isMe ? 'justify-end' : 'justify-start'}`}>
-            <div className={`max-w-[70%] rounded-xl px-4 py-3 ${isMe
-                ? 'bg-indigo-600 text-white rounded-br-none'
-                : 'bg-white border border-gray-200 text-gray-800 rounded-bl-none shadow-sm'
+        <div className={`flex gap-3 mb-4 animate-in slide-in-from-bottom-2 duration-300 ${isMe ? 'flex-row-reverse' : 'flex-row'}`}>
+            {/* Avatar */}
+            <div className={`h-8 w-8 rounded-full flex items-center justify-center shrink-0 border shadow-sm ${isMe ? 'bg-indigo-100 border-indigo-200' : 'bg-white border-gray-200'}`}>
+                {isMe ? (
+                    <span className="text-xs font-bold text-indigo-600">ME</span>
+                ) : (
+                    <div className="h-full w-full rounded-full bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center text-white text-[10px] font-bold">
+                        AI
+                    </div>
+                )}
+            </div>
+
+            {/* Bubble */}
+            <div className={`max-w-[75%] px-4 py-3 shadow-md ${isMe
+                ? 'bg-indigo-600 text-white rounded-2xl rounded-tr-none'
+                : 'bg-white border border-gray-100 text-gray-800 rounded-2xl rounded-tl-none'
                 }`}>
-                <p className="text-sm leading-relaxed">{message.text}</p>
-                <span className={`text-[10px] block mt-1 ${isMe ? 'text-indigo-200' : 'text-gray-400'}`}>
+                <p className="text-sm leading-relaxed whitespace-pre-wrap">{message.text}</p>
+                <div className={`text-[10px] flex items-center gap-1 mt-1.5 ${isMe ? 'text-indigo-200 justify-end' : 'text-gray-400'}`}>
                     {message.time}
-                </span>
+                    {isMe && <CheckCircle size={10} />}
+                </div>
             </div>
         </div>
     );
