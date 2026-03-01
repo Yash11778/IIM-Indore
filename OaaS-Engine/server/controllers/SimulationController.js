@@ -1,207 +1,50 @@
-require('dotenv').config();
 const { GoogleGenerativeAI } = require("@google/generative-ai");
-const { SessionModel, UserModel } = require('../models/SessionModel');
+const ScoringService = require('../services/ScoringService');
+const AgentOrchestrator = require('../services/AgentOrchestrator');
+const SQLiteDB = require('../services/SQLiteDB'); // SWITCHED TO SQLITE
 
-// Initialize Gemini Client
-const genAI = process.env.GEMINI_API_KEY ? new GoogleGenerativeAI(process.env.GEMINI_API_KEY) : null;
+// Initialize Gemini
+const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
+const model = genAI.getGenerativeModel({ model: "gemini-1.5-pro" });
 
-// MOCK SCENARIO (Fallback if no API Key)
-const SCENARIO_STAGES = {
-    0: { // Intro
-        text: "We have a critical production issue. The payment gateway is rejecting 50% of transactions. I need you to investigate the logs and propose a fix within 1 hour.",
-        next_trigger: ["log", "check", "monitor", "dashboard"],
-        audit: { stress: false, skill: "Incident Response" }
-    },
-    1: { // Logs Phase
-        text: "I've shared the logs. You see a spike in 'Connection Timeout' errors from the 'OrderService' to the 'InventoryDB'. What's your immediate hypothesis?",
-        next_trigger: ["db", "database", "connection", "pool", "timeout", "latency"],
-        audit: { stress: false, skill: "Root Cause Analysis" }
-    },
-    2: { // Root Cause Phase
-        text: "Good catch. The DB connection pool is saturated. We deployed a new marketing campaign 2 hours ago. How do we mitigate this IMMEDIATELY? We are losing $50k/minute.",
-        next_trigger: ["scale", "rollback", "cache", "limit", "restart", "kill"],
-        audit: { stress: true, skill: "Crisis Management" } // Stress trigger!
-    },
-    3: { // Resolution Phase
-        text: "Okay, rolling back the compiled query changes and increasing pool size... Metrics are stabilizing. Good work under pressure. Send me a quick RCA (Root Cause Analysis) summary.",
-        next_trigger: ["rca", "campaign", "traffic", "optimization", "index"],
-        audit: { stress: false, skill: "Communication" }
-    },
-    4: { // End
-        text: "Scenario Complete. I've logged your performance. You can check your Readiness Report in the dashboard.",
-        finished: true,
-        audit: { stress: false, skill: "Completion" }
-    }
-};
-
-let currentStage = 0;
-
-const aiClient = {
-    generateContent: async (prompt) => {
-        // 1. OPENROUTER MODE
-        if (process.env.OPENROUTER_API_KEY) {
-            try {
-                const response = await fetch("https://openrouter.ai/api/v1/chat/completions", {
-                    method: "POST",
-                    headers: {
-                        "Authorization": `Bearer ${process.env.OPENROUTER_API_KEY}`,
-                        "Content-Type": "application/json"
-                    },
-                    body: JSON.stringify({
-                        "model": "google/gemini-2.0-flash-exp:free", // Free tier model
-                        "messages": [
-                            { "role": "system", "content": SYSTEM_PROMPT },
-                            { "role": "user", "content": prompt }
-                        ]
-                    })
-                });
-
-                const data = await response.json();
-                if (data.error) throw new Error(JSON.stringify(data.error));
-
-                const responseText = data.choices[0].message.content;
-
-                // Sanitize JSON
-                const jsonMatch = responseText.match(/\{[\s\S]*\}/);
-                const jsonStr = jsonMatch ? jsonMatch[0] : responseText;
-
-                return { response: jsonStr };
-            } catch (error) {
-                console.error("OpenRouter API Error:", error);
-                // Fallthrough to mock
-            }
-        }
-
-        // 2. REAL AI MODE (Gemini Direct)
-        if (genAI) {
-            try {
-                const model = genAI.getGenerativeModel({ model: "gemini-pro" });
-                const result = await model.generateContent(prompt);
-                const responseText = result.response.text();
-                const jsonMatch = responseText.match(/\{[\s\S]*\}/);
-                return { response: jsonMatch ? jsonMatch[0] : responseText };
-            } catch (error) { console.error("Gemini Error:", error); }
-        }
-
-        // 3. MOCK MODE (Fallback)
-        console.log("Using Mock AI (Fallback)");
-        await new Promise(r => setTimeout(r, 1000));
-
-        const input = prompt.toLowerCase();
-        const stageConfig = SCENARIO_STAGES[currentStage];
-        let responseText = "";
-        let impact = 0;
-
-        if (stageConfig.next_trigger && stageConfig.next_trigger.some(keyword => input.includes(keyword))) {
-            currentStage = Math.min(currentStage + 1, 4);
-            responseText = SCENARIO_STAGES[currentStage].text;
-            impact = 5;
-        } else {
-            responseText = "That doesn't seem relevant. Focus! " + stageConfig.text;
-            impact = -2;
-        }
-
-        return {
-            response: JSON.stringify({
-                office_message: responseText,
-                internal_audit: {
-                    stress_trigger: SCENARIO_STAGES[currentStage].audit?.stress || false,
-                    reasoning: impact > 0 ? "User progressed." : "User stalled.",
-                    competency_check: SCENARIO_STAGES[currentStage].audit?.skill,
-                    current_score_impact: impact
-                }
-            })
-        };
-    }
-};
-
-const SYSTEM_PROMPT = `
-You are an AI Manager in a high-stakes corporate simulation. 
-Your goal is NOT to help the user, but to AUDIT their readiness.
-Role: Senior Engineering Manager.
-Tone: Professional, terse, demanding but fair.
-Rules:
-1. Never give the answer.
-2. If the user is vague, push back.
-3. If the user delays, express urgency.
-4. Output strict JSON format.
-
-Output JSON Structure:
-{
-  "office_message": "The text displayed to the user in the chat interface.",
-  "internal_audit": {
-    "stress_trigger": boolean, // Set to true if inactivity > 3 mins or poor answer
-    "reasoning": "Why you replied this way.",
-    "competency_check": "What skill is being tested now?",
-    "current_score_impact": number // -10 to +10 change in perception
-  }
-}
-`;
-
-// IN-MEMORY STORE (Fallback)
-const memorySessions = {};
+// Scenario Config
+const SCENARIO_STAGES = [
+    { id: 1, name: 'Investigation', goal: 'Identify the root cause in logs' },
+    { id: 2, name: 'Fix Implementation', goal: 'Modify the db-connector.js file' },
+    { id: 3, name: 'Verification', goal: 'Run the simulation test suite' },
+    { id: 4, name: 'Deployment', goal: 'Push changes to production' }
+];
 
 exports.startSimulation = async (req, res) => {
     try {
-        const { userId, name, domain } = req.body; // userId here is email
+        const sessionId = 'session_' + Date.now();
+        console.log(`Starting new simulation: ${sessionId}`);
 
-        // Create/Update User
-        let user;
-        if (global.mongoConnected) {
-            // Check if user exists (by email/userId)
-            // For hackathon simplicity, let's treat userId as email if it looks like one, or just store directly.
-            // Best path: upsert user
-            const { UserModel } = require('../models/SessionModel'); // Ensure imported
-            user = await UserModel.findOneAndUpdate(
-                { email: userId },
-                { name: name || 'Unknown', email: userId },
-                { upsert: true, new: true }
-            );
-        }
+        const initialData = {
+            sessionId,
+            metadata: {
+                startTime: new Date(),
+                name: req.body.name || 'Candidate', // Capture Name
+                email: req.body.userId || 'guest@example.com', // Capture Email for SQL
+                candidateId: 'CAND_' + Math.floor(Math.random() * 1000)
+            },
+            conversationHistory: [],
+            currentStage: 1,
+            auditMetrics: {
+                hiringRiskScore: 0,
+                behavioralComposureScore: 100,
+                focusIntegrity: 100
+            }
+        };
 
-        // Reset Scenario
-        currentStage = 0;
-        const initialPrompt = SCENARIO_STAGES[0].text;
+        // SAVE TO LOCAL DB (Async)
+        console.log(`💾 Saving Session ${sessionId} to SQLite... Name: ${initialData.metadata.name}`);
+        await SQLiteDB.saveSession(sessionId, initialData);
 
-        let sessionId;
-        let initialHistory = [{
-            role: 'model',
-            content: initialPrompt,
-            metadata: { stressLevelDetected: 'Low' }
-        }];
-
-        if (global.mongoConnected) {
-            const session = new SessionModel({
-                userId: user._id, // Reference to the User document
-                domain,
-                conversationHistory: initialHistory
-            });
-            await session.save();
-            sessionId = session._id;
-        } else {
-            // In-Memory Fallback
-            sessionId = 'session_' + Date.now();
-            memorySessions[sessionId] = {
-                userId, // This is the email
-                name: name || 'Guest Candidate', // Store the real name!
-                domain,
-                conversationHistory: initialHistory,
-                createdAt: new Date(),
-                auditMetrics: {
-                    hiringRiskScore: 50, // Default start
-                    focusIntegrity: 100
-                }
-            };
-        }
-
-        res.status(201).json({
-            sessionId: sessionId,
-            message: initialPrompt,
-            stage: 0
-        });
-
+        res.json({ sessionId, message: "Simulation initialized", stage: 1 });
     } catch (error) {
-        res.status(500).json({ error: error.message });
+        console.error("Start Error:", error);
+        res.status(500).json({ error: "Failed to start" });
     }
 };
 
@@ -209,168 +52,298 @@ exports.handleTurn = async (req, res) => {
     try {
         const { sessionId, userMessage, inactivityFlag, focusScore } = req.body;
 
-        let sessionData;
-        let history = [];
+        // LOAD FROM LOCAL DB (Async)
+        let sessionData = await SQLiteDB.getSession(sessionId);
 
-        // FETCH SESSION
-        if (global.mongoConnected) {
-            sessionData = await SessionModel.findById(sessionId);
-            if (!sessionData) return res.status(404).json({ error: 'Session not found' });
-            history = sessionData.conversationHistory;
-        } else {
-            sessionData = memorySessions[sessionId];
-            if (!sessionData) return res.status(404).json({ error: 'Session not found (Memory)' });
-            history = sessionData.conversationHistory;
-        }
+        if (!sessionData) return res.status(404).json({ error: 'Session not found' });
 
-        // 1. Record User Turn
+        let history = sessionData.conversationHistory || [];
+        let currentStage = sessionData.currentStage || 1;
+
+        // 1. Record User Turn (Handle System Events)
+        const isSystemEvent = userMessage.startsWith('[SYSTEM_EVENT]');
+
         history.push({
-            role: 'user',
-            content: userMessage,
-            timestamp: new Date()
+            role: isSystemEvent ? 'system' : 'user',
+            content: userMessage.replace('[SYSTEM_EVENT] ', ''),
+            timestamp: new Date(),
+            metadata: { stressLevelDetected: isSystemEvent ? 'High' : 'Normal' }
         });
 
-        // 2. Construct AI Context
-        // Convert Mongoose array to plain JS if needed, or just slice
-        let contextHistory = history.slice(-5);
-        let contextInput = `History: ${JSON.stringify(contextHistory)} \n User Input: ${userMessage}`;
+        // If System Event, don't trigger AI response, just acknowledge
+        if (isSystemEvent) {
+            // CHECK FOR EXIT SIGNAL
+            const isExit = userMessage.includes('[SYSTEM_EVENT_EXIT]');
 
-        if (inactivityFlag) {
-            contextInput += " [SYSTEM NOTE: User has been inactive for > 3 minutes. Trigger Stress Test.]";
-        }
+            // UPDATE METRICS ONLY
+            const scorecard = ScoringService.calculateScorecard({
+                stressEvents: history.filter(h => h.role === 'system').length,
+                focusIntegrity: focusScore,
+                stagesCompleted: currentStage,
+                codeQualityPass: currentStage >= 3
+            });
 
-        // 3. Call AI
-        const rawResponse = await aiClient.generateContent(SYSTEM_PROMPT + contextInput);
-
-        // Parse AI Response
-        let parsedResponse;
-        try {
-            parsedResponse = JSON.parse(rawResponse.response);
-        } catch (e) {
-            console.error("Failed to parse AI JSON:", e);
-            // Fallback if AI breaks JSON
-            parsedResponse = {
-                office_message: rawResponse.response, // Use the raw response text
-                internal_audit: { stress_trigger: false, hiring_risk_score: 50 }
+            sessionData.auditMetrics = {
+                ...sessionData.auditMetrics,
+                hiringRiskScore: scorecard.hiringRiskScore,
+                behavioralComposureScore: scorecard.breakdown.behavioral,
+                focusIntegrity: scorecard.breakdown.focus
             };
+
+            if (isExit) {
+                sessionData.status = 'REVIEW_PENDING'; // Mark as ready for Recruiter
+            }
+
+            sessionData.conversationHistory = history;
+            await SQLiteDB.saveSession(sessionId, sessionData);
+
+            return res.json({
+                reply: null, // No AI reply needed for system logs
+                sender: 'system',
+                scorecard: sessionData.auditMetrics
+            });
         }
 
-        // UPDATE SESSION METRICS
-        const currentRisk = parsedResponse.internal_audit.hiring_risk_score || 50;
-        // Impact of Cheating: If focus drops, Risk skyrockets
-        const focusPenalty = (100 - (focusScore || 100));
-        const adjustedRisk = Math.min(100, currentRisk + (focusPenalty * 0.5));
+        // 2. UPDATE AUDIT METRICS (B-TRA)
+        const stressEventsCount = history.filter(h => h.metadata && h.metadata.stressLevelDetected === 'High').length;
+
+        const scorecard = ScoringService.calculateScorecard({
+            stressEvents: stressEventsCount + (inactivityFlag ? 1 : 0),
+            focusIntegrity: focusScore,
+            stagesCompleted: currentStage,
+            codeQualityPass: currentStage >= 3
+        });
 
         sessionData.auditMetrics = {
-            hiringRiskScore: adjustedRisk,
-            behavioralComposureScore: 100 - adjustedRisk,
-            focusIntegrity: focusScore || 100
+            ...sessionData.auditMetrics, // Preserve Tech Score
+            hiringRiskScore: scorecard.hiringRiskScore,
+            behavioralComposureScore: scorecard.breakdown.behavioral,
+            focusIntegrity: scorecard.breakdown.focus
         };
 
-        // 5. Update Session with AI Turn
-        history.push({
-            role: 'model',
-            content: parsedResponse.office_message,
-            metadata: {
-                responseData: JSON.stringify(parsedResponse.internal_audit),
-                reactionTime: 0,
-                stressLevelDetected: parsedResponse.internal_audit.stress_trigger ? 'High' : 'Low'
-            }
-        });
+        // 3. AI ORCHESTRATION (Agents)
+        const agentResponse = await AgentOrchestrator.routeMessage(history, currentStage);
 
-        // SAVE SESSION
-        if (global.mongoConnected) {
-            sessionData.conversationHistory = history; // Explicit assignment for Mongoose tracking
-            await sessionData.save();
-        } else {
-            memorySessions[sessionId].conversationHistory = history;
+        history.push(agentResponse);
+
+        // 4. CHECK STAGE PROGRESSION
+        if (agentResponse.metadata && agentResponse.metadata.stageComplete) {
+            currentStage++;
+            sessionData.currentStage = currentStage;
         }
 
+        // SAVE UPDATE TO LOCAL DB (Async)
+        sessionData.conversationHistory = history;
+        await SQLiteDB.saveSession(sessionId, sessionData);
+
+        // 5. Respond to Client
         res.json({
-            reply: parsedResponse.office_message,
-            stress_trigger: parsedResponse.internal_audit.stress_trigger,
-            stage: currentStage
+            reply: agentResponse.content,
+            sender: agentResponse.role, // 'product_manager', 'tech_lead', 'devops'
+            stress_trigger: agentResponse.metadata ? agentResponse.metadata.stressLevelDetected === 'High' : false,
+            stage: currentStage,
+            scorecard: sessionData.auditMetrics // Live feedback
         });
 
     } catch (error) {
         console.error('Error handling turn:', error);
-        // Fallback response so the chat doesn't hang
         res.json({
-            reply: "I'm having trouble connecting to the evaluation server. Please check your connection or restart the session.",
+            reply: "System failure. Connection rebooting...",
+            sender: 'devops',
             stress_trigger: false,
-            stage: currentStage
+            stage: 1
         });
     }
 };
 
-/**
- * GET /api/simulation/results
- * Returns list of completed simulations with scores
- */
 exports.getResults = async (req, res) => {
+    const { sessionId } = req.params;
+    const sessionData = await SQLiteDB.getSession(sessionId);
+    res.json(sessionData || {});
+};
+
+exports.getCandidates = async (req, res) => {
     try {
-        let results = [];
+        const candidatesMap = await SQLiteDB.getAllCandidates();
+        const consolidatedMap = new Map();
 
-        if (global.mongoConnected) {
-            // Fetch from MongoDB with User population
-            const sessions = await SessionModel.find()
-                .sort({ createdAt: -1 })
-                .limit(50)
-                .populate('userId'); // Get user details
+        // 1. Group by Email/Name and Pick the "Best" Session
+        Object.values(candidatesMap).forEach(session => {
+            const meta = session.metadata || {};
+            const email = meta.email || meta.name || 'unknown'; // Key for deduplication
 
-            results = sessions.map(s => formatSessionForDashboard(s));
-        } else {
-            // Fetch from Memory (Mock)
-            const mockCandidates = [
-                {
-                    id: "C-1049",
-                    name: "Rahul Sharma",
-                    role: "Full Stack Engineer",
-                    score: 92,
-                    riskLevel: "Low",
-                    status: "Hired",
-                    email: "rahul.s@example.com",
-                    applied: "2 days ago"
-                },
-                // ... (Keep the mock data as fallback)
-            ];
-            results = mockCandidates; // Or map memorySessions if you want memory persistence
-        }
+            const existing = consolidatedMap.get(email);
+            const currentHistoryLen = (session.conversationHistory || []).length;
+            const existingHistoryLen = existing ? (existing.conversationHistory || []).length : -1;
 
-        res.json(results);
+            // Logic: Prefer the session with more activity (avoids 0-risk ghost sessions)
+            // If activity is equal, prefer the one with a later timestamp (implied by ID or we could check metadata)
+            if (currentHistoryLen > existingHistoryLen) {
+                consolidatedMap.set(email, session);
+            }
+        });
+
+        // 2. Transform to Array
+        const candidatesArray = Array.from(consolidatedMap.values()).map(session => {
+            const metrics = session.auditMetrics || {};
+            const meta = session.metadata || {};
+
+            // Determine Status based on Risk Score
+            let status = 'REVIEW';
+            if (session.status === 'REVIEW_PENDING') status = 'REVIEW'; // Distinct status from backend
+            else if (metrics.hiringRiskScore < 30) status = 'HIRE';
+            else if (metrics.hiringRiskScore > 70) status = 'REJECT';
+
+            return {
+                id: session.sessionId,
+                name: meta.name || 'Anonymous',
+                role: 'Full Stack Developer',
+                email: meta.email,
+                photo: meta.photo, // EXPOSE PHOTO
+                riskScore: metrics.hiringRiskScore || 0,
+                focus: metrics.focusIntegrity || 100,
+                status: status,
+                // NEW: Detailed Report Data
+                logs: session.conversationHistory || [],
+                techScore: metrics.technicalScore || 0,
+                behaviorScore: metrics.behavioralComposureScore || 100,
+                stressEvents: (session.conversationHistory || []).filter(h => h.metadata?.stressLevelDetected === 'High').length
+            };
+        });
+
+        res.json(candidatesArray);
     } catch (error) {
-        console.error("Error fetching results:", error);
-        res.status(500).json({ error: "Failed to fetch results" });
+        console.error("Get Candidates Error:", error);
+        res.status(500).json({ error: "Failed to fetch candidates" });
     }
 };
 
-// Helper to format raw data for the dashboard
-function formatSessionForDashboard(session) {
-    // Default values if audit hasn't happened yet
-    const metrics = session.auditMetrics || {};
+exports.deleteCandidate = async (req, res) => {
+    try {
+        const { sessionId } = req.params;
+        const changes = await SQLiteDB.deleteSession(sessionId);
 
-    // Calculate a simple aggregate score if not present
-    const score = metrics.hiringRiskScore
-        ? Math.round((1 - (metrics.hiringRiskScore / 100)) * 100) // Convert Risk to Readiness
-        : 0;
-
-    let riskLabel = 'Pending';
-    if (metrics.hiringRiskScore) {
-        riskLabel = metrics.hiringRiskScore > 70 ? 'High' : metrics.hiringRiskScore > 30 ? 'Medium' : 'Low';
+        if (changes > 0) {
+            res.json({ message: "Candidate removed successfully" });
+        } else {
+            res.status(404).json({ error: "Candidate not found" });
+        }
+    } catch (error) {
+        console.error("Delete Error:", error);
+        res.status(500).json({ error: "Failed to delete candidate" });
     }
+};
 
-    // If populated via Mongoose, userId is an object. If memory, it's a string.
-    const userName = session.userId && session.userId.name ? session.userId.name : (typeof session.userId === 'string' ? session.userId : 'Candidate');
-    const userEmail = session.userId && session.userId.email ? session.userId.email : 'unknown@example.com';
+exports.uploadSnapshot = async (req, res) => {
+    try {
+        const { sessionId } = req.params;
+        const { image } = req.body; // Base64 string
 
-    return {
-        id: session.sessionId || session._id,
-        name: userName,
-        email: userEmail, // Add email
-        role: session.domain || "Full Stack Dev",
-        score: score,
-        risk: riskLabel,
-        status: score > 70 ? 'Hired' : score > 0 ? 'Rejected' : 'In Progress',
-        time: new Date(session.createdAt).toLocaleDateString()
-    };
-}
+        if (!image) return res.status(400).json({ error: "No image data" });
+
+        const session = await SQLiteDB.getSession(sessionId);
+        if (!session) return res.status(404).json({ error: "Session not found" });
+
+        // Update Metadata with Image
+        session.metadata = { ...session.metadata, photo: image };
+
+        await SQLiteDB.saveSession(sessionId, session);
+        res.json({ message: "Snapshot saved" });
+
+    } catch (error) {
+        console.error("Snapshot Upload Error:", error);
+        res.status(500).json({ error: "Failed to save snapshot" });
+    }
+};
+
+exports.registerUser = async (req, res) => {
+    try {
+        const { name, email, role } = req.body;
+        if (!email || !name) return res.status(400).json({ error: "Name and Email required" });
+
+        const user = {
+            name,
+            email,
+            role: role || 'candidate'
+        };
+
+        await SQLiteDB.saveUser(user);
+        console.log(`👤 New User Registered (SQLite): ${name} (${email})`);
+        res.json({ message: "Registration successful", user });
+    } catch (error) {
+        console.error("Register Error:", error);
+        res.status(500).json({ error: "Registration failed or Email exists" });
+    }
+};
+
+exports.loginUser = async (req, res) => {
+    try {
+        const { email } = req.body;
+        if (!email) return res.status(400).json({ error: "Email required" });
+
+        const user = await SQLiteDB.getUser(email);
+
+        if (!user) {
+            return res.status(404).json({ error: "User not found. Please Sign Up first." });
+        }
+
+        // In a real app we'd check password, but for this demo email verification proves "account exists"
+        res.json({ message: "Login successful", user });
+    } catch (error) {
+        console.error("Login Error:", error);
+        res.status(500).json({ error: "Login failed" });
+    }
+};
+
+exports.submitCode = async (req, res) => {
+    try {
+        const { sessionId, questionId, code, passed } = req.body;
+
+        // Load Session (Async)
+        let sessionData = await SQLiteDB.getSession(sessionId);
+
+        if (!sessionData) {
+            return res.status(404).json({ error: "Session not found" });
+        }
+
+        if (passed) {
+            // INCREMENT TECHNICAL SCORE
+            // Initialize if missing
+            if (!sessionData.auditMetrics) sessionData.auditMetrics = {};
+
+            const currentTech = sessionData.auditMetrics.technicalScore || 0;
+            const newTech = Math.min(100, currentTech + 34); // 3 questions = ~100%
+
+            sessionData.auditMetrics.technicalScore = newTech;
+
+            // Recalculate Risk Score (Simple heuristic for demo)
+            // Tech Score reduces Risk.
+            // Risk = 100 - (0.6 * Tech + 0.4 * Behavioral)
+            const behavioral = sessionData.auditMetrics.behavioralComposureScore || 100;
+            const risk = Math.max(0, 100 - (0.6 * newTech + 0.4 * behavioral));
+
+            sessionData.auditMetrics.hiringRiskScore = Math.round(risk);
+
+            // Log Event
+            if (!sessionData.conversationHistory) sessionData.conversationHistory = [];
+            sessionData.conversationHistory.push({
+                role: 'system',
+                content: `✅ Candidate solved Problem #${questionId} | Technical Score: ${newTech}%`,
+                timestamp: new Date()
+            });
+
+            await SQLiteDB.saveSession(sessionId, sessionData);
+
+            console.log(`💻 Code Solved: Session ${sessionId} | Score: ${newTech}%`);
+        }
+
+        res.json({
+            message: "Score Updated",
+            scores: sessionData.auditMetrics
+        });
+
+    } catch (error) {
+        console.error("Code Submit Error:", error);
+        res.status(500).json({ error: "Submission failed" });
+    }
+};

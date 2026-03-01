@@ -1,36 +1,38 @@
+require('dotenv').config();
 const express = require('express');
-const mongoose = require('mongoose');
 const cors = require('cors');
-const simulationRoutes = require('./routes/simulationRoutes');
+const mongoose = require('mongoose');
 
 const app = express();
-const PORT = process.env.PORT || 5001;
+const PORT = 5002; // Hardcoded to bypass blocked 5001
 
 // Middleware
 app.use(cors());
 app.use(express.json());
 
 // Routes
+const simulationRoutes = require('./routes/simulationRoutes');
 app.use('/api/simulation', simulationRoutes);
 
-// Database Connection
-global.mongoConnected = false;
-
-mongoose.connect(process.env.MONGO_URI || 'mongodb://localhost:27017/oaas_engine', {
+// DATABASE CONNECTION (Local Persistence Fallback)
+// Try connecting to MongoDB. If it fails (due to DNS/Firewall), we switch to LocalFileDB.
+mongoose.connect(process.env.MONGO_URI, {
     useNewUrlParser: true,
     useUnifiedTopology: true,
-    serverSelectionTimeoutMS: 5000 // Fail fast
+    serverSelectionTimeoutMS: 2000 // Fail fast
 }).then(() => {
-    console.log('✅ Connected to MongoDB');
+    console.log("✅ MongoDB Connected (Cloud Mode)");
     global.mongoConnected = true;
 }).catch(err => {
-    // Suppress scary stack traces for the hackathon demo
-    console.log('⚠️ MongoDB Connection Failed (Invalid URI or Network Issue).');
-    console.log('🚀 Switched to IN-MEMORY DEMO MODE. All features will work locally.');
+    console.warn("⚠️  MongoDB Connection Failed:", err.message);
+    console.log("🚀 Switching to SQLITE STORAGE (oaas.db). Cloud features disabled.");
     global.mongoConnected = false;
 });
 
-// Start Server
+app.get('/', (req, res) => {
+    res.send('OaaS Engine API is running...');
+});
+
 app.listen(PORT, () => {
     console.log(`Server running on port ${PORT}`);
 });

@@ -4,42 +4,60 @@ import {
     Briefcase,
     FileText,
     AlertCircle,
-    Send,
     Terminal as TerminalIcon,
     Code
 } from 'lucide-react';
 import Terminal from './Terminal';
 import CodeEditor from './CodeEditor';
+import AgentChat from './AgentChat';
 
 const Dashboard = () => {
     const [activeTab, setActiveTab] = useState('chat');
     const [sessionId, setSessionId] = useState(null);
     const [messages, setMessages] = useState([]);
-    const [inputText, setInputText] = useState('');
     const [stressLevel, setStressLevel] = useState('Low');
     const [showReport, setShowReport] = useState(false);
     const [currentStage, setCurrentStage] = useState(0);
-    const [focusScore, setFocusScore] = useState(100); // BIO-METRIC
+    const [focusScore, setFocusScore] = useState(100);
     const [tabSwitches, setTabSwitches] = useState(0);
-    const inactivityTimerRef = useRef(null);
+    const [isTyping, setIsTyping] = useState(false);
+    const [finalScorecard, setFinalScorecard] = useState(null);
+    const [isTestActive, setIsTestActive] = useState(false); // LIFTED STATE
+    const [candidateName, setCandidateName] = useState('Candidate'); // NEW STATE
 
-    // Auto-scroll to bottom of chat
-    const chatEndRef = useRef(null);
-    const scrollToBottom = () => {
-        chatEndRef.current?.scrollIntoView({ behavior: "smooth" });
+    // Guard: Prevent accidental exit during test
+    const handleTabSwitch = (newTab) => {
+        // Log every tab switch for forensics
+        handleSystemMessage(`[AUDIT] Candidate switched view to: ${newTab.toUpperCase()}`);
+
+        if (activeTab === 'ide' && isTestActive && newTab !== 'ide') {
+            const confirmExit = window.confirm(
+                "⚠️ WARNING: Assessment in Progress!\n\nLeaving the IDE now will terminate the test session and impact your 'Focus Integrity' score.\n\nAre you sure you want to exit?"
+            );
+
+            if (confirmExit) {
+                // PENALTY APPLIED
+                setFocusScore(prev => Math.max(0, prev - 25)); // Major penalty
+                setStressLevel('High');
+                handleSystemMessage("⚠️ [AUDIT] Candidate abandoned technical assessment. Integrity score penalized (-25%).");
+                setIsTestActive(false); // End test
+                setActiveTab(newTab);
+            }
+        } else {
+            setActiveTab(newTab);
+        }
     };
-    useEffect(scrollToBottom, [messages]);
 
     const lastWarningRef = useRef(0);
+    const inactivityTimerRef = useRef(null);
 
     // BIOMETRIC MONITORING (Anti-Cheating)
     useEffect(() => {
         const handleVisibilityChange = () => {
             if (document.hidden) {
                 setTabSwitches(prev => prev + 1);
-                setFocusScore(prev => Math.max(0, prev - 5)); // Reduced penalty from 15 to 5
+                setFocusScore(prev => Math.max(0, prev - 5));
 
-                // Debounce Chat Warnings (Max 1 msg every 10 seconds)
                 const now = Date.now();
                 if (now - lastWarningRef.current > 10000) {
                     handleSystemMessage("⚠️ [NEURO-LINK] Focus Loss Detected. Integrity Score Dropped.");
@@ -56,15 +74,15 @@ const Dashboard = () => {
     useEffect(() => {
         const startSession = async () => {
             try {
-                // Get user details from login
                 const userName = localStorage.getItem('candidateName') || 'Guest Candidate';
                 const userEmail = localStorage.getItem('candidateEmail') || 'guest@example.com';
+                setCandidateName(userName);
 
-                const res = await fetch('http://localhost:5001/api/simulation/start', {
+                const res = await fetch('http://localhost:5002/api/simulation/start', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({
-                        userId: userEmail, // treating email as unique ID for now
+                        userId: userEmail,
                         name: userName,
                         domain: 'Full Stack Dev'
                     })
@@ -74,7 +92,7 @@ const Dashboard = () => {
                 setCurrentStage(data.stage);
                 setMessages([{
                     id: Date.now(),
-                    sender: 'manager',
+                    sender: 'pm',
                     text: data.message,
                     time: new Date().toLocaleTimeString()
                 }]);
@@ -86,15 +104,14 @@ const Dashboard = () => {
         startSession();
     }, []);
 
-    // Activity Monitor (The "Stress Trigger")
+    // Activity Monitor
     const resetInactivityTimer = () => {
         if (inactivityTimerRef.current) clearTimeout(inactivityTimerRef.current);
 
         inactivityTimerRef.current = setTimeout(() => {
             handleSystemMessage("⚠️ [SYSTEM ALERT] Manager is waiting for your response...");
             setStressLevel('High');
-            // Optional: Notify backend of inactivity if needed
-        }, 180000); // 3 minutes
+        }, 180000);
     };
 
     useEffect(() => {
@@ -102,14 +119,31 @@ const Dashboard = () => {
         return () => clearTimeout(inactivityTimerRef.current);
     }, [messages]);
 
-    const handleSystemMessage = (text) => {
-        setMessages(prev => [...prev, { id: Date.now(), sender: 'system', text: text, time: new Date().toLocaleTimeString() }]);
+    const handleSystemMessage = async (text) => {
+        const sysMsg = { id: Date.now(), sender: 'system', text: text, time: new Date().toLocaleTimeString() };
+        setMessages(prev => [...prev, sysMsg]);
+
+        // SYNC TO BACKEND (Crucial for Reporting)
+        if (sessionId) {
+            try {
+                await fetch('http://localhost:5002/api/simulation/turn', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        sessionId,
+                        userMessage: `[SYSTEM_EVENT] ${text}`, // Special flag for backend
+                        inactivityFlag: false,
+                        focusScore: focusScore
+                    })
+                });
+            } catch (err) {
+                console.error("Failed to sync system message", err);
+            }
+        }
     };
 
     const handleTerminalSuccess = () => {
-        // This runs when they fix the config in the terminal
         handleSystemMessage("✅ [SYSTEM] Configuration Update Verified. DB Connection Pool Scaled.");
-        // We simulate sending a message to the AI so it knows we fixed it
         const autoMsg = "I have scaled the DB_POOL_SIZE to 200 via the terminal. The database latency alerts should be resolving now.";
         setMessages(prev => [...prev, {
             id: Date.now(),
@@ -120,9 +154,9 @@ const Dashboard = () => {
         handleSend(autoMsg);
     };
 
-    const handleCodeSuccess = (challengeTitle) => {
-        handleSystemMessage(`✅ [IDE] Unit Tests Passed for: ${challengeTitle}`);
-        const autoMsg = `I have completed the coding challenge: ${challengeTitle}. Algorithm optimized.`;
+    const handleGitPush = (branch) => {
+        handleSystemMessage(`✅ [GIT] Pushed branch origin/${branch}. Notifying Tech Lead...`);
+        const autoMsg = `I have pushed a fix to branch '${branch}'. Please review my PR.`;
         setMessages(prev => [...prev, {
             id: Date.now(),
             sender: 'me',
@@ -130,37 +164,38 @@ const Dashboard = () => {
             time: new Date().toLocaleTimeString()
         }]);
         handleSend(autoMsg);
+    }
+
+    const handleCodeSuccess = (challengeTitle) => {
+        handleSystemMessage(`✅ [IDE] Unit Tests Passed for: ${challengeTitle}`);
     };
 
     // SEND MESSAGE
-    const handleSend = async (msgOverride = null) => {
-        const textToSend = msgOverride || inputText;
+    const handleSend = async (textToSend) => {
         if (!textToSend.trim() && !sessionId) return;
 
-        const userMsg = {
-            id: Date.now(),
-            sender: 'me',
-            text: textToSend,
-            time: new Date().toLocaleTimeString()
-        };
-
-        // Only add to messages if it's not an override (i.e., user typed it)
-        if (!msgOverride) {
-            setMessages(prev => [...prev, userMsg]);
-            setInputText('');
+        const lastMsg = messages[messages.length - 1];
+        if (!lastMsg || lastMsg.text !== textToSend) {
+            setMessages(prev => [...prev, {
+                id: Date.now(),
+                sender: 'me',
+                text: textToSend,
+                time: new Date().toLocaleTimeString()
+            }]);
         }
+
         resetInactivityTimer();
 
         try {
-            setIsTyping(true); // Start typing animation
-            const res = await fetch('http://localhost:5001/api/simulation/turn', {
+            setIsTyping(true);
+            const res = await fetch('http://localhost:5002/api/simulation/turn', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
                     sessionId,
                     userMessage: textToSend,
                     inactivityFlag: stressLevel === 'High',
-                    focusScore: focusScore // Send biometric data
+                    focusScore: focusScore
                 })
             });
 
@@ -168,12 +203,12 @@ const Dashboard = () => {
 
             const aiMsg = {
                 id: Date.now() + 1,
-                sender: 'manager',
+                sender: data.sender || 'manager',
                 text: data.reply,
                 time: new Date().toLocaleTimeString()
             };
             setMessages(prev => [...prev, aiMsg]);
-            setIsTyping(false); // Stop typing animation
+            setIsTyping(false);
 
             if (data.stress_trigger) {
                 setStressLevel('High');
@@ -182,9 +217,12 @@ const Dashboard = () => {
                 setStressLevel('Low');
             }
 
+            if (data.scorecard) {
+                setFinalScorecard(data.scorecard);
+            }
+
             if (data.stage !== undefined) setCurrentStage(data.stage);
 
-            // Check for completion
             if (data.reply.includes("Scenario Complete")) {
                 setTimeout(() => setShowReport(true), 2000);
             }
@@ -192,8 +230,99 @@ const Dashboard = () => {
         } catch (error) {
             console.error("Simulation Error", error);
             handleSystemMessage("❌ Error communicating with the AI Manager.");
+            setIsTyping(false);
         }
     };
+
+    const [timeRemaining, setTimeRemaining] = useState(3600); // 1 Hour in seconds
+
+    // EXIT TEST LOGIC
+    const handleExitTest = async () => {
+        if (window.confirm("Are you sure you want to finish the test? This will submit your current progress and generate your final report.")) {
+            // 1. Notify Verification System
+            handleSystemMessage("⚠️ [SYSTEM] Candidate manually finished the session. Finalizing score...");
+
+            // 2. Send Final Sync Event
+            if (sessionId) {
+                try {
+                    await fetch('http://localhost:5002/api/simulation/turn', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
+                            sessionId,
+                            userMessage: `[SYSTEM_EVENT_EXIT] Candidate completed the proper test.`,
+                            inactivityFlag: false,
+                            focusScore: focusScore
+                        })
+                    });
+                } catch (err) {
+                    console.error("Exit sync failed", err);
+                }
+            }
+
+            // 3. Clear Local Auth to prevent re-entry
+            localStorage.removeItem('candidateName');
+            localStorage.removeItem('candidateEmail');
+
+            // 4. Redirect
+            alert("Test Submitted Successfully. You may now close this window.");
+            window.location.href = '/';
+        }
+    };
+
+    // TIMER LOGIC
+    useEffect(() => {
+        const timer = setInterval(() => {
+            setTimeRemaining(prev => {
+                if (prev <= 1) {
+                    clearInterval(timer);
+                    handleSystemMessage("⏰ [SYSTEM ALERT] Time Limit Exceeded. Auto-submitting assessment...");
+                    handleExitTest(); // Auto-exit
+                    return 0;
+                }
+                return prev - 1;
+            });
+        }, 1000);
+        return () => clearInterval(timer);
+    }, []);
+
+    const formatTime = (seconds) => {
+        const mins = Math.floor(seconds / 60);
+        const secs = seconds % 60;
+        return `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
+    };
+
+    const webcamRef = useRef(null);
+
+    const captureSnapshot = async () => {
+        if (webcamRef.current && sessionId) {
+            const image = webcamRef.current.getSnapshot();
+            if (image) {
+                try {
+                    await fetch(`http://localhost:5002/api/simulation/session/${sessionId}/snapshot`, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ image })
+                    });
+                    // System Message for "Immersion"
+                    // handleSystemMessage("[SYSTEM] Identity Verified via Biometric Scan."); 
+                } catch (err) {
+                    console.error("Snapshot upload failed", err);
+                }
+            }
+        }
+    };
+
+    // Auto-capture when Test becomes Active
+    useEffect(() => {
+        if (isTestActive) {
+            // Take initial snapshot after 2 seconds
+            const timer = setTimeout(() => {
+                captureSnapshot();
+            }, 2000);
+            return () => clearTimeout(timer);
+        }
+    }, [isTestActive, sessionId]);
 
     return (
         <div className="flex h-screen bg-gray-50 font-inter text-gray-800">
@@ -202,9 +331,23 @@ const Dashboard = () => {
                 <div className="p-6 border-b border-gray-100">
                     <div className="flex items-center gap-2 font-bold text-lg text-indigo-600">
                         <Briefcase size={24} />
-                        <span>OaaS Engine</span>
+                        <span>Proven.io</span>
                     </div>
+                    <h3 className="font-bold text-gray-900 mt-4 text-lg">{candidateName}</h3>
                     <p className="text-xs text-gray-400 mt-1">Role: Senior Full-Stack Dev</p>
+
+                    {/* PROCTORING FEED */}
+                    <div className="mt-4 flex justify-center">
+                        <WebcamFeed ref={webcamRef} />
+                    </div>
+
+                    {/* TIMER WIDGET */}
+                    <div className="mt-4 bg-slate-900 rounded p-3 text-center border border-slate-700 shadow-md">
+                        <span className="text-xs text-slate-400 uppercase tracking-widest font-bold">Time Remaining</span>
+                        <div className={`text-2xl font-mono font-bold ${timeRemaining < 300 ? 'text-red-500 animate-pulse' : 'text-white'}`}>
+                            {formatTime(timeRemaining)}
+                        </div>
+                    </div>
                 </div>
 
                 {/* NEURO-LINK BIOMETRICS HUD */}
@@ -258,10 +401,10 @@ const Dashboard = () => {
                 </div>
 
                 <nav className="flex-1 p-4 space-y-1">
-                    <TabButton icon={<MessageSquare size={18} />} label="Office Chat" active={activeTab === 'chat'} onClick={() => setActiveTab('chat')} />
-                    <TabButton icon={<TerminalIcon size={18} />} label="Terminal (SSH)" active={activeTab === 'terminal'} onClick={() => setActiveTab('terminal')} />
-                    <TabButton icon={<Code size={18} />} label="IDE (Code)" active={activeTab === 'ide'} onClick={() => setActiveTab('ide')} />
-                    <TabButton icon={<AlertCircle size={18} />} label="Tasks" active={activeTab === 'tasks'} onClick={() => setActiveTab('tasks')} />
+                    <TabButton icon={<MessageSquare size={18} />} label="Office Chat" active={activeTab === 'chat'} onClick={() => handleTabSwitch('chat')} />
+                    <TabButton icon={<TerminalIcon size={18} />} label="Terminal (SSH)" active={activeTab === 'terminal'} onClick={() => handleTabSwitch('terminal')} />
+                    <TabButton icon={<Code size={18} />} label="IDE (Code)" active={activeTab === 'ide'} onClick={() => handleTabSwitch('ide')} />
+                    <TabButton icon={<AlertCircle size={18} />} label="Tasks" active={activeTab === 'tasks'} onClick={() => handleTabSwitch('tasks')} />
                 </nav>
 
                 <div className="p-4 border-t border-gray-100">
@@ -276,45 +419,50 @@ const Dashboard = () => {
                 {/* Header */}
                 <header className="bg-white h-16 border-b border-gray-200 flex items-center justify-between px-6">
                     <h2 className="font-semibold text-gray-700">
-                        {activeTab === 'chat' ? 'Direct Message: Alex (Engineering Manager)' : 'Assignments'}
+                        {activeTab === 'chat' && 'Direct Message: Corporate Channel'}
+                        {activeTab === 'terminal' && 'Production Terminal'}
+                        {activeTab === 'ide' && 'Development Environment'}
+                        {activeTab === 'tasks' && 'Jira Board'}
                     </h2>
                     <div className="flex items-center gap-4">
-                        <span className="h-2 w-2 bg-green-500 rounded-full animate-pulse"></span>
-                        <span className="text-sm text-gray-500">System Online</span>
+                        {isTestActive ? (
+                            <div className="flex items-center gap-2 bg-red-50 text-red-600 px-3 py-1 rounded-full border border-red-100 animate-pulse">
+                                <span className="relative flex h-2 w-2">
+                                    <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-red-400 opacity-75"></span>
+                                    <span className="relative inline-flex rounded-full h-2 w-2 bg-red-500"></span>
+                                </span>
+                                Monitoring Active
+                            </div>
+                        ) : (
+                            <div className="bg-gray-100 text-gray-500 px-3 py-1 rounded-full text-xs">
+                                Environment Check
+                            </div>
+                        )}
+
+                        <button
+                            onClick={handleExitTest}
+                            className="bg-red-600 hover:bg-red-700 text-white px-4 py-2 rounded-lg text-sm font-semibold transition shadow-md"
+                        >
+                            Finish Test
+                        </button>
+
+                        <div className="flex items-center gap-2">
+                            <span className="text-sm text-gray-500">System Online</span>
+                        </div>
                     </div>
                 </header>
 
+                {/* ... (Rest of Dashboard Content) ... */}
                 {/* Chat Area */}
                 {activeTab === 'chat' && (
-                    <div className="flex-1 flex flex-col overflow-hidden">
-                        <div className="flex-1 overflow-y-auto p-6 space-y-4">
-                            {messages.map((msg) => (
-                                <MessageBubble key={msg.id} message={msg} />
-                            ))}
-                            <div ref={chatEndRef} />
-                        </div>
-
-                        <div className="p-4 bg-white border-t border-gray-200">
-                            <div className="max-w-4xl mx-auto relative flex items-center gap-2">
-                                <input
-                                    type="text"
-                                    className="w-full pl-4 pr-12 py-3 rounded-lg border border-gray-300 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent transition-all"
-                                    placeholder="Type your reply..."
-                                    value={inputText}
-                                    onChange={(e) => setInputText(e.target.value)}
-                                    onKeyDown={(e) => e.key === 'Enter' && handleSend()}
-                                    autoFocus
-                                />
-                                <button
-                                    onClick={handleSend}
-                                    className="absolute right-2 p-2 bg-indigo-600 text-white rounded-md hover:bg-indigo-700 transition-colors"
-                                >
-                                    <Send size={18} />
-                                </button>
-                            </div>
-                            <p className="text-center text-xs text-gray-400 mt-2">
-                                Behavioral Audit Active. Response times and logic are being monitored.
-                            </p>
+                    <div className="flex flex-col h-full">
+                        <MissionCard onAction={() => handleTabSwitch('ide')} />
+                        <div className="flex-1 overflow-hidden">
+                            <AgentChat
+                                messages={messages}
+                                onSendMessage={handleSend}
+                                isTyping={isTyping}
+                            />
                         </div>
                     </div>
                 )}
@@ -354,18 +502,20 @@ const Dashboard = () => {
                             <span className="text-xs text-gray-500">root@ip-10-0-0-15</span>
                         </div>
                         <div className="flex-1 p-2 overflow-hidden">
-                            <Terminal onCorrectAction={handleTerminalSuccess} />
+                            <Terminal onGitPush={handleGitPush} />
                         </div>
                     </div>
                 )}
 
                 {activeTab !== 'chat' && activeTab === 'ide' && (
                     <div className="flex-1 p-0 bg-gray-900 overflow-hidden flex flex-col">
-                        <CodeEditor onComplete={handleCodeSuccess} />
+                        <CodeEditor
+                            sessionId={sessionId}
+                            isTestActive={isTestActive}
+                            onStartTest={() => setIsTestActive(true)}
+                        />
                     </div>
                 )}
-
-
 
                 {/* Report Modal */}
                 {showReport && (
@@ -374,18 +524,20 @@ const Dashboard = () => {
                             <h2 className="text-2xl font-bold text-gray-800 mb-2">Readiness Audit Complete</h2>
                             <div className="space-y-6">
                                 <div className="flex justify-between items-center py-4 border-b">
-                                    <span className="text-gray-500">Role Capability</span>
-                                    <span className="text-green-600 font-bold text-xl">HIRED</span>
+                                    <span className="text-gray-500">Validation Status</span>
+                                    <span className={`font-bold text-xl ${finalScorecard?.status === 'HIRE' ? 'text-green-600' : 'text-red-500'}`}>
+                                        {finalScorecard?.status || "PENDING"}
+                                    </span>
                                 </div>
 
                                 <div className="space-y-3">
-                                    <ScoreBar label="Incident Response" score={85} />
-                                    <ScoreBar label="Tech Communication" score={92} />
-                                    <ScoreBar label="Pressure Handling" score={stressLevel === 'High' ? 40 : 88} />
+                                    <ScoreBar label="Technical Execution" score={finalScorecard?.breakdown.technical || 0} />
+                                    <ScoreBar label="Behavioral Resilience" score={finalScorecard?.breakdown.behavioral || 0} />
+                                    <ScoreBar label="Focus Integrity" score={finalScorecard?.breakdown.focus || 0} />
                                 </div>
 
-                                <p className="text-sm text-gray-500 italic mt-4">
-                                    "Candidate showed strong initial instincts but hesitated slightly during the database root cause analysis. Excellent final recovery."
+                                <p className="text-sm text-gray-500 italic mt-4 bg-gray-50 p-3 rounded">
+                                    "{finalScorecard?.notes || "Processing evaluation..."}"
                                 </p>
 
                                 <button
@@ -404,6 +556,78 @@ const Dashboard = () => {
 };
 
 // Sub-components
+const WebcamFeed = React.forwardRef((props, ref) => {
+    const videoRef = useRef(null);
+    const [error, setError] = useState(false);
+
+    // Expose capture method
+    React.useImperativeHandle(ref, () => ({
+        getSnapshot: () => {
+            if (videoRef.current) {
+                const canvas = document.createElement("canvas");
+                canvas.width = videoRef.current.videoWidth;
+                canvas.height = videoRef.current.videoHeight;
+                canvas.getContext("2d").drawImage(videoRef.current, 0, 0);
+                return canvas.toDataURL("image/jpeg", 0.7); // Return Base64
+            }
+            return null;
+        }
+    }));
+
+    useEffect(() => {
+        let stream = null;
+        const startVideo = async () => {
+            try {
+                stream = await navigator.mediaDevices.getUserMedia({ video: true });
+                if (videoRef.current) {
+                    videoRef.current.srcObject = stream;
+                }
+                setError(false);
+            } catch (err) {
+                console.error("Camera Access Denied:", err);
+                setError(true);
+            }
+        };
+
+        startVideo();
+
+        return () => {
+            if (stream) {
+                stream.getTracks().forEach(track => track.stop());
+            }
+        };
+    }, []);
+
+    if (error) {
+        return (
+            <div className="h-10 w-16 bg-red-900/20 rounded border border-red-500 flex items-center justify-center" title="Camera Blocked">
+                <span className="text-[10px] text-red-500 font-bold">NO CAM</span>
+            </div>
+        );
+    }
+
+    return (
+        <div className="relative group">
+            <div className="h-10 w-16 bg-black rounded overflow-hidden border border-gray-300 shadow-sm relative">
+                <video
+                    ref={videoRef}
+                    autoPlay
+                    playsInline
+                    muted
+                    className="h-full w-full object-cover transform scale-125"
+                />
+            </div>
+            {/* Status Indicator */}
+            <div className="absolute -top-1 -right-1 h-3 w-3 bg-red-600 rounded-full border-2 border-white animate-pulse" title="Proctoring Active"></div>
+
+            {/* Tooltip on Hover */}
+            <div className="absolute hidden group-hover:block top-full mt-2 right-0 bg-gray-800 text-white text-xs px-2 py-1 rounded whitespace-nowrap z-50">
+                Proctoring Active
+            </div>
+        </div>
+    );
+});
+
 const TaskItem = ({ status, title }) => (
     <li className="flex items-center gap-3 p-3 bg-white rounded-lg border border-gray-100 shadow-sm">
         <div className={`h-4 w-4 rounded-full border-2 flex items-center justify-center ${status === 'done' ? 'bg-green-500 border-green-500' : 'border-gray-300'}`}>
@@ -417,10 +641,10 @@ const ScoreBar = ({ label, score }) => (
     <div>
         <div className="flex justify-between text-sm mb-1">
             <span className="font-medium text-gray-700">{label}</span>
-            <span className="font-bold text-indigo-600">{score}%</span>
+            <span className="font-bold text-indigo-600">{Math.round(score)}%</span>
         </div>
         <div className="h-2 bg-gray-100 rounded-full overflow-hidden">
-            <div className="h-full bg-indigo-500 rounded-full transition-all duration-1000" style={{ width: `${score}%` }} />
+            <div className="h-full bg-indigo-500 rounded-full transition-all duration-1000" style={{ width: `${Math.max(0, Math.min(100, score))}%` }} />
         </div>
     </div>
 );
@@ -435,50 +659,23 @@ const TabButton = ({ icon, label, active, onClick }) => (
     </button>
 );
 
-const MessageBubble = ({ message }) => {
-    const isMe = message.sender === 'me';
-    const isSystem = message.sender === 'system';
-
-    if (isSystem) {
-        return (
-            <div className="flex justify-center my-4 animate-in fade-in zoom-in duration-300">
-                <span className="bg-yellow-50 text-yellow-800 text-xs font-semibold px-4 py-1.5 rounded-full border border-yellow-200 shadow-sm flex items-center gap-2">
-                    <span className="relative flex h-2 w-2">
-                        <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-yellow-400 opacity-75"></span>
-                        <span className="relative inline-flex rounded-full h-2 w-2 bg-yellow-500"></span>
-                    </span>
-                    {message.text}
-                </span>
-            </div>
-        );
-    }
-
-    return (
-        <div className={`flex gap-3 mb-4 animate-in slide-in-from-bottom-2 duration-300 ${isMe ? 'flex-row-reverse' : 'flex-row'}`}>
-            {/* Avatar */}
-            <div className={`h-8 w-8 rounded-full flex items-center justify-center shrink-0 border shadow-sm ${isMe ? 'bg-indigo-100 border-indigo-200' : 'bg-white border-gray-200'}`}>
-                {isMe ? (
-                    <span className="text-xs font-bold text-indigo-600">ME</span>
-                ) : (
-                    <div className="h-full w-full rounded-full bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center text-white text-[10px] font-bold">
-                        AI
-                    </div>
-                )}
-            </div>
-
-            {/* Bubble */}
-            <div className={`max-w-[75%] px-4 py-3 shadow-md ${isMe
-                ? 'bg-indigo-600 text-white rounded-2xl rounded-tr-none'
-                : 'bg-white border border-gray-100 text-gray-800 rounded-2xl rounded-tl-none'
-                }`}>
-                <p className="text-sm leading-relaxed whitespace-pre-wrap">{message.text}</p>
-                <div className={`text-[10px] flex items-center gap-1 mt-1.5 ${isMe ? 'text-indigo-200 justify-end' : 'text-gray-400'}`}>
-                    {message.time}
-                    {isMe && <CheckCircle size={10} />}
-                </div>
-            </div>
+const MissionCard = ({ onAction }) => (
+    <div className="bg-white border-b border-gray-200 p-4 flex justify-between items-center shadow-sm z-10 shrink-0">
+        <div>
+            <h3 className="font-bold text-gray-800 flex items-center gap-2">
+                <AlertCircle size={16} className="text-indigo-600" />
+                Current Mission: Build MVP Dashboard
+            </h3>
+            <p className="text-sm text-gray-500">Implement React Frontend & Node.js Backend. Verify via Tests.</p>
         </div>
-    );
-};
+        <button
+            onClick={onAction}
+            className="flex items-center gap-2 bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2 rounded-lg text-sm font-semibold transition shadow"
+        >
+            <Code size={16} />
+            Open IDE & Submit
+        </button>
+    </div>
+);
 
 export default Dashboard;

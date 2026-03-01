@@ -8,7 +8,7 @@ const CorporateDashboard = () => {
     const [selectedCandidate, setSelectedCandidate] = React.useState(null);
 
     React.useEffect(() => {
-        fetch('http://localhost:5001/api/simulation/results')
+        fetch('http://localhost:5002/api/simulation/results')
             .then(res => res.json())
             .then(data => {
                 if (Array.isArray(data)) {
@@ -46,7 +46,7 @@ const CorporateDashboard = () => {
                 {/* Header Stats */}
                 <div className="mb-8">
                     <h1 className="text-2xl font-bold text-gray-900 mb-2">Talent Pipeline Overview</h1>
-                    <p className="text-gray-500">Real-time audit results from the OaaS Engine.</p>
+                    <p className="text-gray-500">Real-time audit results from Proven.io.</p>
                 </div>
 
                 <div className="grid grid-cols-1 md:grid-cols-4 gap-6 mb-8">

@@ -1,134 +1,154 @@
 import React, { useState, useEffect, useRef } from 'react';
 import TypewriterText from './TypewriterText';
 
-const Terminal = ({ onCorrectAction }) => {
+const Terminal = ({ onGitPush }) => {
     const [history, setHistory] = useState([
-        { type: 'system', content: 'Connected to payment-service-v4 (production)' },
-        { type: 'system', content: 'Connection Pool Manager v2.1.0' },
-        { type: 'system', content: 'Type "help" for check available commands.' }
+        { type: 'system', content: 'Legacy Payment Service v1.0.2' },
+        { type: 'system', content: 'Environment: DEV-LOCAL' },
+        { type: 'system', content: 'Type "help" for available commands.' }
     ]);
     const [input, setInput] = useState('');
-    const endRef = useRef(null);
+    const [gitState, setGitState] = useState({
+        initialized: false,
+        branch: 'main',
+        staged: [],
+        commits: []
+    });
+    const [isMatrixActive, setIsMatrixActive] = useState(false);
 
-    const scrollToBottom = () => endRef.current?.scrollIntoView({ behavior: 'smooth' });
+    const endRef = useRef(null);
+    const containerRef = useRef(null);
+
+    const scrollToBottom = React.useCallback(() => {
+        endRef.current?.scrollIntoView({ behavior: 'smooth' });
+    }, []);
     useEffect(scrollToBottom, [history]);
+
+    // Matrix Effect Helper
+    useEffect(() => {
+        if (!isMatrixActive) return;
+
+        const chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789@#$%^&*";
+        const interval = setInterval(() => {
+            setHistory(prev => {
+                const randomLine = Array(50).fill(0).map(() => chars.charAt(Math.floor(Math.random() * chars.length))).join(' ');
+                // Keep history size manageable
+                const newHistory = [...prev, { type: 'matrix', content: randomLine }];
+                if (newHistory.length > 50) return newHistory.slice(newHistory.length - 50);
+                return newHistory;
+            });
+        }, 50);
+
+        return () => clearInterval(interval);
+    }, [isMatrixActive]);
 
     const handleCommand = (e) => {
         if (e.key === 'Enter') {
-            const cmd = input.trim().toLowerCase();
+            const cmd = input.trim();
             if (!cmd) return;
 
-            const newHistory = [...history, { type: 'user', content: `admin@oaas:~$ ${input}` }];
-            const args = cmd.split(' ');
+            // Stop matrix if running and user types anything (or special command to stop)
+            if (isMatrixActive) {
+                setIsMatrixActive(false);
+                setHistory(prev => [...prev, { type: 'system', content: 'Matrix simulation terminated.' }]);
+                setInput('');
+                return;
+            }
+
+            const newHistory = [...history, { type: 'user', content: `dev@proven:~/project$ ${input}` }];
+            const args = cmd.toLowerCase().split(' ');
             const baseCmd = args[0];
 
-            // HELP
-            if (baseCmd === 'help') {
-                newHistory.push({
-                    type: 'response', content:
-                        `AVAILABLE COMMANDS:
-  system      -----------------------
-  status      Check service health metrics
-  config      View current configuration
-  set-config  Update configuration variable
-  reboot      Restart system services
-  
-  diagnostics -----------------------
-  logs        View recent application logs
-  ps          List running processes
-  netstat     Network connections
-  ping        Test network connectivity
-  
-  files       -----------------------
-  ls          List directory contents
-  cat         Read file content
-  
-  misc        -----------------------
-  whoami      Display current user
-  clear       Clear terminal screen` });
+            // --- GIT COMMANDS ---
+            if (baseCmd === 'git') {
+                const subCmd = args[1];
+
+                if (subCmd === 'init') {
+                    setGitState({ ...gitState, initialized: true });
+                    newHistory.push({ type: 'response', content: 'Initialized empty Git repository in /project/.git/' });
+                }
+                else if (subCmd === 'status') {
+                    if (!gitState.initialized) {
+                        newHistory.push({ type: 'error', content: 'fatal: not a git repository (or any of the parent directories): .git' });
+                    } else {
+                        newHistory.push({
+                            type: 'response',
+                            content: `On branch ${gitState.branch}\nChanges not staged for commit:\n  (use "git add <file>..." to update what will be committed)\n\n    modified:   src/utils/UserAuth.js\n\nno changes added to commit (use "git add" and/or "git commit -a")`
+                        });
+                    }
+                }
+                else if (subCmd === 'add') {
+                    if (args[2] === '.') {
+                        setGitState(prev => ({ ...prev, staged: ['src/utils/UserAuth.js'] }));
+                        newHistory.push({ type: 'response', content: '' }); // Silent success
+                    } else {
+                        newHistory.push({ type: 'error', content: 'Usage: git add .' });
+                    }
+                }
+                else if (subCmd === 'commit') {
+                    if (gitState.staged.length === 0) {
+                        newHistory.push({ type: 'response', content: 'On branch ' + gitState.branch + '\nnothing to commit, working tree clean' });
+                    } else if (!cmd.includes('-m')) {
+                        newHistory.push({ type: 'error', content: 'Aborting commit due to empty commit message.' });
+                    } else {
+                        const msg = cmd.split('-m')[1]?.trim().replace(/['"]/g, '');
+                        setGitState(prev => ({
+                            ...prev,
+                            staged: [],
+                            commits: [...prev.commits, { id: Math.floor(Math.random() * 10000), msg }]
+                        }));
+                        newHistory.push({ type: 'response', content: `[${gitState.branch} ${Math.floor(Math.random() * 1000000)}] ${msg}\n 1 file changed, 12 insertions(+), 4 deletions(-)` });
+                    }
+                }
+                else if (subCmd === 'push') {
+                    newHistory.push({ type: 'response', content: 'Enumerating objects: 5, done.\nCounting objects: 100% (5/5), done.\nWriting objects: 100% (3/3), 420 bytes | 420.00 KiB/s, done.\nTotal 3 (delta 1), reused 0 (delta 0)\nTo github.com:org/legacy-payment.git' });
+                    newHistory.push({ type: 'success', content: `   e23a1..f42d1  ${gitState.branch} -> ${gitState.branch}` });
+
+                    // Trigger System Event
+                    if (onGitPush) {
+                        setTimeout(() => onGitPush(gitState.branch), 1000);
+                    }
+                }
+                else if (subCmd === 'checkout') {
+                    if (args[2] === '-b') {
+                        const newBranch = args[3];
+                        setGitState(prev => ({ ...prev, branch: newBranch }));
+                        newHistory.push({ type: 'response', content: `Switched to a new branch '${newBranch}'` });
+                    } else {
+                        setGitState(prev => ({ ...prev, branch: args[2] }));
+                        newHistory.push({ type: 'response', content: `Switched to branch '${args[2]}'` });
+                    }
+                }
+                else {
+                    newHistory.push({ type: 'response', content: `git: '${subCmd}' is not a git command. See 'git --help'.` });
+                }
             }
-            // STATUS
-            else if (baseCmd === 'status') {
-                newHistory.push({ type: 'response', content: 'SERVICE: payment-gateway\nSTATUS:  DEGRADED [High Latency]\nUPTIME:  14d 2h 12m\n\nMETRICS:\n  CPU:     92% [CRITICAL]\n  MEMORY:  45%\n  DB_PEERS: 50/50 [MAX_CAPACITY]' });
-            }
-            // LOGS
-            else if (baseCmd === 'logs') {
-                newHistory.push({
-                    type: 'error',
-                    content: '[2026-01-15 14:32:01] [ERROR] ConnectionTimeout: Timeout waiting for free database connection.\n[2026-01-15 14:32:02] [WARN] Pool is exhausted (Size: 50). Retrying...'
-                });
-            }
-            // CONFIG
-            else if (baseCmd === 'config') {
-                newHistory.push({ type: 'response', content: 'CURRENT CONFIGURATION:\n  ENV:           PRODUCTION\n  DB_HOST:       10.0.0.15\n  DB_POOL_SIZE:  50\n  TIMEOUT_MS:    3000' });
-            }
-            // LS
+            // --- STANDARD COMMANDS ---
             else if (baseCmd === 'ls') {
-                newHistory.push({ type: 'response', content: 'drwxr-xr-x  2 admin  admin  4096 Jan 15 10:00 .\ndrwxr-xr-x  4 root   root   4096 Jan 01 00:00 ..\n-rw-r--r--  1 admin  admin   450 Jan 15 14:28 config.env\n-rw-r--r--  1 admin  admin  2400 Jan 15 14:30 error.log\n-rwxr-x---  1 admin  admin  8042 Jan 10 09:00 deploy.sh' });
+                newHistory.push({ type: 'response', content: 'src  package.json  README.md  tests  node_modules' });
             }
-            // CAT
-            else if (baseCmd === 'cat') {
-                if (args[1] === 'config.env') {
-                    newHistory.push({ type: 'response', content: 'DB_HOST=10.0.0.15\nDB_USER=pg_admin\nDB_POOL_SIZE=50\nREDIS_URL=redis://cache:6379' });
-                } else if (args[1] === 'error.log') {
-                    newHistory.push({ type: 'error', content: '... [Truncated 500 lines] ...\nError: Max client connections reached (50/50).\nError: Max client connections reached (50/50).\nFatal: Pool exhausted.' });
-                } else if (!args[1]) {
-                    newHistory.push({ type: 'response', content: 'Usage: cat [filename]' });
-                } else {
-                    newHistory.push({ type: 'response', content: `cat: ${args[1]}: No such file or directory` });
-                }
-            }
-            // PS
-            else if (baseCmd === 'ps') {
-                newHistory.push({
-                    type: 'response', content:
-                        `PID   USER   %CPU  %MEM  COMMAND
-1     root   0.0   0.1   /sbin/init
-44    admin  88.2  12.0  node server.js
-89    postgres 5.0  8.0   postgres: writer process
-92    redis    1.0  2.0   redis-server *:6379` });
-            }
-            // NETSTAT
-            else if (baseCmd === 'netstat') {
-                newHistory.push({
-                    type: 'response', content:
-                        `Proto Recv-Q Send-Q Local Address           Foreign Address         State
-tcp        0      0 0.0.0.0:443             0.0.0.0:*               LISTEN
-tcp       50      0 10.0.0.15:5432          192.168.1.104:49152     ESTABLISHED
-tcp        0      0 10.0.0.15:5432          192.168.1.105:49155     TIME_WAIT` });
-            }
-            // PING
-            else if (baseCmd === 'ping') {
-                if (args[1]) {
-                    newHistory.push({ type: 'response', content: `PING ${args[1]} (10.0.0.1): 56 data bytes\n64 bytes from 10.0.0.1: icmp_seq=0 ttl=64 time=0.042 ms\n64 bytes from 10.0.0.1: icmp_seq=1 ttl=64 time=0.058 ms\n64 bytes from 10.0.0.1: icmp_seq=2 ttl=64 time=0.038 ms\n\n--- ${args[1]} ping statistics ---\n3 packets transmitted, 3 packets received, 0.0% packet loss` });
-                } else {
-                    newHistory.push({ type: 'response', content: 'Usage: ping [host]' });
-                }
-            }
-            // WHOAMI
-            else if (baseCmd === 'whoami') {
-                newHistory.push({ type: 'response', content: 'admin' });
-            }
-            // REBOOT
-            else if (baseCmd === 'reboot') {
-                newHistory.push({ type: 'error', content: 'reboot: Operation not permitted (Must use sudo or fix configuration first)' });
-            }
-            // WINNING MOVE: SET-CONFIG
-            else if (cmd.includes('set-config') && (cmd.includes('pool') || cmd.includes('200'))) {
-                newHistory.push({ type: 'success', content: 'Applying configuration change...\n> SET DB_POOL_SIZE = 200\n> RESTARTING CONNECTION POOL...\n[SUCCESS] New configuration active. Connection queue clearing.' });
-                if (onCorrectAction) onCorrectAction();
-            }
-            else if (baseCmd === 'set-config') {
-                newHistory.push({ type: 'response', content: 'Usage: set-config [variable] [value]\nExample: set-config TIMEOUT_MS 5000' });
-            }
-            // CLEAR
             else if (baseCmd === 'clear') {
                 setHistory([]);
                 setInput('');
                 return;
             }
+            else if (baseCmd === 'help') {
+                newHistory.push({ type: 'response', content: 'Available commands: git, ls, cd, cat, clear, npm, matrix, integrity_check' });
+            }
+            else if (baseCmd === 'npm' && args[1] === 'test') {
+                newHistory.push({ type: 'response', content: '> legacy-payment@1.0.0 test\n> jest\n\nPASS tests/auth.test.js\n  UserAuth\n    ✓ should store session (2ms)\n    ✕ should clear memory (Failed)\n\nTest Suites: 1 failed, 1 passed, 2 total\nTests:       1 failed, 3 passed, 4 total' });
+            }
+            // --- FUN COMMANDS ---
+            else if (baseCmd === 'matrix') {
+                setIsMatrixActive(true);
+                newHistory.push({ type: 'system', content: 'Initiating Visual Interface Override...' });
+            }
+            else if (baseCmd === 'integrity_check') {
+                newHistory.push({ type: 'system', content: 'Running System Diagnostics...' });
+                setTimeout(() => setHistory(h => [...h, { type: 'success', content: 'CPU: OK\nRAM: OK\nNetwork: OK\nSecurity Breach: DETECTED' }]), 1500);
+            }
             else {
-                newHistory.push({ type: 'response', content: `Command not found: ${baseCmd}. Type "help" for list of commands.` });
+                newHistory.push({ type: 'response', content: `Command not found: ${baseCmd}` });
             }
 
             setHistory(newHistory);
@@ -137,24 +157,30 @@ tcp        0      0 10.0.0.15:5432          192.168.1.105:49155     TIME_WAIT` }
     };
 
     return (
-        <div className="flex flex-col h-full bg-gray-900 font-mono text-sm p-4 overflow-hidden rounded-lg border border-gray-700 shadow-inner">
-            <div className="flex-1 overflow-y-auto space-y-2 mb-4 custom-scrollbar">
+        <div className="relative flex flex-col h-full bg-black font-mono text-sm p-4 overflow-hidden border-t border-gray-800 crt animate-flicker">
+            {/* CRT Screen Overlay is handled by css class .crt */}
+
+            <div className="text-green-500/80 text-xs mb-2 select-none border-b border-green-900/50 pb-1 flex justify-between items-center text-glow">
+                <span>TERMINAL_V2.0 // SECURE_CONNECTION</span>
+                <span className="animate-pulse">● LIVE</span>
+            </div>
+
+            <div
+                ref={containerRef}
+                className="flex-1 overflow-y-auto space-y-1 mb-2 custom-scrollbar z-10"
+            >
                 {history.map((line, i) => (
                     <div key={i} className={`
-                        ${line.type === 'error' ? 'text-red-400' : ''}
-                        ${line.type === 'success' ? 'text-green-400 font-bold' : ''}
-                        ${line.type === 'user' ? 'text-cyan-300' : ''}
+                        ${line.type === 'error' ? 'text-red-500 text-glow' : ''}
+                        ${line.type === 'success' ? 'text-green-400 text-glow' : ''}
+                        ${line.type === 'user' ? 'text-blue-300 font-bold text-glow' : ''}
                         ${line.type === 'response' ? 'text-gray-300' : ''}
-                        ${line.type === 'system' ? 'text-indigo-400 italic' : ''}
-                        whitespace-pre-wrap leading-relaxed
+                        ${line.type === 'system' ? 'text-yellow-500' : ''}
+                        ${line.type === 'matrix' ? 'text-green-600 font-matrix opacity-70' : ''}
+                        whitespace-pre-wrap leading-tight font-fira
                     `}>
-                        {/* Only animate new messages, not history (simplification: animate everything or just last one? 
-                            Let's just animate typical system/response messages to keep it simple, 
-                            but for a log, we probably want instant render for old stuff. 
-                            For now, let's just animate the "success" and "system" messages for effect.
-                        */}
-                        {line.type !== 'user' ? (
-                            <TypewriterText text={line.content} speed={10} onComplete={scrollToBottom} />
+                        {(line.type === 'response' || line.type === 'system') && !isMatrixActive ? (
+                            <TypewriterText text={line.content} speed={1} onComplete={scrollToBottom} />
                         ) : (
                             line.content
                         )}
@@ -162,16 +188,17 @@ tcp        0      0 10.0.0.15:5432          192.168.1.105:49155     TIME_WAIT` }
                 ))}
                 <div ref={endRef} />
             </div>
-            <div className="flex items-center gap-2 border-t border-gray-700 pt-3">
-                <span className="text-green-500 font-bold">admin@oaas:~$</span>
+
+            <div className="flex items-center gap-2 pt-2 z-10 border-t border-green-900/30">
+                <span className="text-green-500 font-bold text-glow">dev@proven:~/project$</span>
                 <input
                     autoFocus
-                    className="flex-1 bg-transparent border-none outline-none text-white placeholder-gray-600 focus:ring-0"
+                    className="flex-1 bg-transparent border-none outline-none text-green-100 placeholder-green-800/50 focus:ring-0 text-glow caret-green-500"
                     value={input}
                     onChange={(e) => setInput(e.target.value)}
                     onKeyDown={handleCommand}
-                    placeholder="Enter command..."
                     spellCheck="false"
+                    placeholder={isMatrixActive ? "Press Enter to stop..." : ""}
                 />
             </div>
         </div>

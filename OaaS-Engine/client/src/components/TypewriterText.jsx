@@ -4,6 +4,7 @@ const TypewriterText = ({ text, speed = 20, onComplete }) => {
     const [displayedText, setDisplayedText] = useState('');
 
     useEffect(() => {
+        setDisplayedText('');
         let i = 0;
         const timer = setInterval(() => {
             if (i < text.length) {

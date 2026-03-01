@@ -1,0 +1,125 @@
+{
+  "sessions": {
+    "session_1768613836883": {
+      "sessionId": "session_1768613836883",
+      "metadata": {
+        "startTime": "2026-01-17T01:37:16.888Z",
+        "name": "Candidate",
+        "candidateId": "CAND_986"
+      },
+      "conversationHistory": [],
+      "currentStage": 1,
+      "auditMetrics": {
+        "hiringRiskScore": 0,
+        "behavioralComposureScore": 100,
+        "focusIntegrity": 100
+      }
+    },
+    "session_1768613836921": {
+      "sessionId": "session_1768613836921",
+      "metadata": {
+        "startTime": "2026-01-17T01:37:16.923Z",
+        "name": "Candidate",
+        "candidateId": "CAND_281"
+      },
+      "conversationHistory": [],
+      "currentStage": 1,
+      "auditMetrics": {
+        "hiringRiskScore": 0,
+        "behavioralComposureScore": 100,
+        "focusIntegrity": 100
+      }
+    },
+    "session_1768614782564": {
+      "sessionId": "session_1768614782564",
+      "metadata": {
+        "startTime": "2026-01-17T01:53:02.568Z",
+        "name": "Candidate",
+        "candidateId": "CAND_199"
+      },
+      "conversationHistory": [],
+      "currentStage": 1,
+      "auditMetrics": {
+        "hiringRiskScore": 0,
+        "behavioralComposureScore": 100,
+        "focusIntegrity": 100
+      }
+    },
+    "session_1768614782576": {
+      "sessionId": "session_1768614782576",
+      "metadata": {
+        "startTime": "2026-01-17T01:53:02.579Z",
+        "name": "Candidate",
+        "candidateId": "CAND_192"
+      },
+      "conversationHistory": [],
+      "currentStage": 1,
+      "auditMetrics": {
+        "hiringRiskScore": 0,
+        "behavioralComposureScore": 100,
+        "focusIntegrity": 100
+      }
+    },
+    "session_1768615219471": {
+      "sessionId": "session_1768615219471",
+      "metadata": {
+        "startTime": "2026-01-17T02:00:19.472Z",
+        "name": "Candidate",
+        "candidateId": "CAND_273"
+      },
+      "conversationHistory": [],
+      "currentStage": 1,
+      "auditMetrics": {
+        "hiringRiskScore": 0,
+        "behavioralComposureScore": 100,
+        "focusIntegrity": 100
+      }
+    },
+    "session_1768615219487": {
+      "sessionId": "session_1768615219487",
+      "metadata": {
+        "startTime": "2026-01-17T02:00:19.489Z",
+        "name": "Candidate",
+        "candidateId": "CAND_684"
+      },
+      "conversationHistory": [],
+      "currentStage": 1,
+      "auditMetrics": {
+        "hiringRiskScore": 0,
+        "behavioralComposureScore": 100,
+        "focusIntegrity": 100
+      }
+    },
+    "session_1768617761672": {
+      "sessionId": "session_1768617761672",
+      "metadata": {
+        "startTime": "2026-01-17T02:42:41.678Z",
+        "name": "Candidate",
+        "candidateId": "CAND_540"
+      },
+      "conversationHistory": [],
+      "currentStage": 1,
+      "auditMetrics": {
+        "hiringRiskScore": 0,
+        "behavioralComposureScore": 100,
+        "focusIntegrity": 100
+      }
+    },
+    "session_1768617761687": {
+      "sessionId": "session_1768617761687",
+      "metadata": {
+        "startTime": "2026-01-17T02:42:41.687Z",
+        "name": "Candidate",
+        "candidateId": "CAND_154"
+      },
+      "conversationHistory": [],
+      "currentStage": 1,
+      "auditMetrics": {
+        "hiringRiskScore": 0,
+        "behavioralComposureScore": 100,
+        "focusIntegrity": 100
+      }
+    }
+  },
+  "candidates": {}
+}
